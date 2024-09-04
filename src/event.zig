@@ -1,5 +1,6 @@
 const std = @import("std");
 const io = std.io;
+const builtin = @import("builtin");
 
 const cursor = @import("cursor.zig");
 
@@ -412,16 +413,18 @@ pub const Event = union(enum) {
 };
 
 test "next" {
-    const term = @import("main.zig").term;
+    if (builtin.os.tag == .linux) {
+        const term = @import("main.zig").term;
 
-    const tty = (try std.fs.cwd().openFile("/dev/tty", .{})).reader();
+        const tty = (try std.fs.cwd().openFile("/dev/tty", .{})).reader();
 
-    var raw = try term.enableRawMode(tty.context.handle, .blocking);
-    defer raw.disableRawMode() catch {};
+        var raw = try term.enableRawMode(tty.context.handle, .blocking);
+        defer raw.disableRawMode() catch {};
 
-    var i: usize = 0;
-    while (i < 3) : (i += 1) {
-        const key = try next(tty);
-        std.debug.print("\n\r{any}\n", .{key});
+        var i: usize = 0;
+        while (i < 3) : (i += 1) {
+            const key = try next(tty);
+            std.debug.print("\n\r{any}\n", .{key});
+        }
     }
 }

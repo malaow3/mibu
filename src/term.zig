@@ -5,6 +5,12 @@ const posix = std.posix;
 
 const builtin = @import("builtin");
 
+const windows = if (builtin.os.tag == .windows) @cImport({
+    @cInclude("windows.h");
+}) else void;
+
+const not_raw_mode_mask: u32 = if (builtin.os.tag == .windows) windows.ENABLE_LINE_INPUT | windows.ENABLE_ECHO_INPUT | windows.ENABLE_PROCESSED_INPUT else 0;
+
 /// ReadMode defines the read behaivour when using raw mode
 pub const ReadMode = enum {
     blocking,
@@ -84,6 +90,47 @@ pub const RawTerm = struct {
     }
 };
 
+pub const RawWinTerm = struct {
+    handle: os.windows.HANDLE,
+
+
+    const Self = @This();
+
+    pub fn disableRawMode(self: *Self) !void {
+        var console_mode: u32 = 0;
+        var result = windows.GetConsoleMode(self.handle, &console_mode);
+        if (result != 0) {
+            return error.GetConsoleModeFailed;
+        }
+        const new_console_mode = console_mode | not_raw_mode_mask;
+        result = windows.SetConsoleMode(self.handle, new_console_mode);
+        if (result != 0) {
+            return error.SetConsoleModeFailed;
+        }
+    }
+};
+
+
+pub fn enableRawModeWin(handle: std.fs.File) !RawWinTerm {
+    var console_mode: u32 = 0;
+    var result = windows.GetConsoleMode(handle.handle, &console_mode);
+    if (result != 0) {
+        return error.GetConsoleModeFailed;
+    }
+
+
+    const flipped_mask: u32 = ~not_raw_mode_mask;
+    const new_console_mode: u32 = console_mode & flipped_mask;
+    result = windows.SetConsoleMode(handle.handle, new_console_mode);
+    if (result != 0) {
+        return error.SetConsoleModeFailed;
+    }
+
+    return RawWinTerm{
+        .handle = handle.handle,
+    };
+}
+
 /// Returned by `getSize()`
 pub const TermSize = struct {
     width: u16,
@@ -111,12 +158,20 @@ pub fn getSize(fd: posix.fd_t) !TermSize {
 }
 
 test "entering stdin raw mode" {
-    const tty = (try std.fs.cwd().openFile("/dev/tty", .{})).reader();
+    if (builtin.os.tag == .linux) {
+        const tty = (try std.fs.cwd().openFile("/dev/tty", .{})).reader();
 
-    const termsize = try getSize(tty.context.handle);
-    std.debug.print("Terminal size: {d}x{d}\n", .{ termsize.width, termsize.height });
+        const termsize = try getSize(tty.context.handle);
+        std.debug.print("Terminal size: {d}x{d}\n", .{ termsize.width, termsize.height });
 
-    // stdin.handle is the same as os.STDIN_FILENO
-    // var term = try enableRawMode(tty.context.handle, .blocking);
-    // defer term.disableRawMode() catch {};
+        // stdin.handle is the same as os.STDIN_FILENO
+        // var term = try enableRawMode(tty.context.handle, .blocking);
+        // defer term.disableRawMode() catch {};
+    }
+
+    if (builtin.os.tag == .windows) {
+        const tty = std.io.getStdOut();
+        var term = try enableRawModeWin(tty);
+        defer term.disableRawMode() catch {};
+    }
 }

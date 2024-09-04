@@ -14,6 +14,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    lib_tests.linkLibC();
+
     const run_lib_tests = b.addRunArtifact(lib_tests);
 
     const test_step = b.step("test", "Run library tests");
