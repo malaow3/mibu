@@ -228,10 +228,11 @@ pub fn next_win(handle: anytype) !Event {
 /// otherwise it will return `.none` if it didnt read any event
 ///
 /// `in`: needs to be reader
-pub fn next(in: anytype) !Event {
+pub fn next(fd: i32) !Event {
     // TODO: Check buffer size
     var buf: [20]u8 = undefined;
-    const c = try in.read(&buf);
+    // Read from fd
+    const c = try std.os.read(fd, &buf);
     if (c == 0) {
         return .none;
     }
