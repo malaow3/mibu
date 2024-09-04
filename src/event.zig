@@ -232,7 +232,7 @@ pub fn next(fd: i32) !Event {
     // TODO: Check buffer size
     var buf: [20]u8 = undefined;
     // Read from fd
-    const c = try std.os.linux.read(fd, &buf, 20);
+    const c = std.os.linux.read(fd, &buf, 20);
     if (c == 0) {
         return .none;
     }
@@ -492,7 +492,7 @@ test "next" {
 
         var i: usize = 0;
         while (i < 3) : (i += 1) {
-            const key = try next(tty);
+            const key = try next(tty.context.handle);
             std.debug.print("\n\r{any}\n", .{key});
         }
     }
