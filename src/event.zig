@@ -161,68 +161,65 @@ pub fn next_win(handle: anytype) !Event {
     const windows = @cImport({
         @cInclude("windows.h");
     });
-    var buf: [1]u8 = undefined;
-    var c: windows.DWORD = undefined;
 
-    if (windows.ReadFile(handle, &buf, 1, &c, null) == 0) {
-        const err = windows.GetLastError();
-        std.debug.print("ReadFile failed. Error: {}\n", .{err});
-        return error.ReadFailure;
+    var input_record: windows.INPUT_RECORD = undefined;
+    var events_read: windows.DWORD = 0;
+
+    if (windows.ReadConsoleInputA(handle, &input_record, 1, &events_read) == 0) {
+        return error.ReadConsoleInputFailed;
     }
 
-    if (c == 0) {
+    if (events_read == 0) {
         return .none;
     }
 
-    const view = std.unicode.Utf8View.init(buf[0..c]) catch {
-        return parse_csi(buf[2..c]);
-    };
+    switch (input_record.EventType) {
+        windows.KEY_EVENT => {
+            const key_event = input_record.Event.KeyEvent;
+            if (key_event.bKeyDown == 0) {
+                return .none; // Ignore key up events
+            }
 
-    var iter = view.iterator();
-    const event: Event = .none;
+            const char: u21 = @intCast(key_event.uChar.UnicodeChar);
+            const ctrl_key_state = key_event.dwControlKeyState;
 
-    // std.debug.print("\n\r{any}\n", .{view});
-
-    // TODO: Find a better way to iterate buffer
-    if (iter.nextCodepoint()) |c0| switch (c0) {
-        '\x1b' => {
-            if (iter.nextCodepoint()) |c1| switch (c1) {
-                // fn (1 - 4)
-                // O - 0x6f - 111
-                '\x4f' => {
-                    return Event{ .key = Key{ .fun = (1 + buf[2] - '\x50') } };
-                },
-
-                // csi
-                '[' => {
-                    return try parse_csi(buf[2..c]);
-                },
-
-                '\x01'...'\x0C', '\x0E'...'\x1A' => return Event{ .key = Key{ .ctrl_alt = c1 + '\x60' } },
-
-                // alt key
-                else => {
-                    return Event{ .key = Key{ .alt = c1 } };
-                },
+            if (char == 0) {
+                // Special key
+                return switch (key_event.wVirtualKeyCode) {
+                    windows.VK_ESCAPE => Event{ .key = .esc },
+                    windows.VK_RETURN => Event{ .key = .enter },
+                    windows.VK_BACK => Event{ .key = .backspace },
+                    windows.VK_F1...windows.VK_F4 => Event{ .key = Key{ .fun = @intCast(key_event.wVirtualKeyCode - windows.VK_F1 + 1) } },
+                    // Add more special keys as needed
+                    else => .none,
+                };
             } else {
-                return Event{ .key = .esc };
+                // Regular character
+                if (ctrl_key_state & windows.LEFT_CTRL_PRESSED != 0 or ctrl_key_state & windows.RIGHT_CTRL_PRESSED != 0) {
+                    if (ctrl_key_state & windows.LEFT_ALT_PRESSED != 0 or ctrl_key_state & windows.RIGHT_ALT_PRESSED != 0) {
+                        return Event{ .key = Key{ .ctrl_alt = @intCast(char) } };
+                    } else {
+                        return Event{ .key = Key{ .ctrl = @intCast(char) } };
+                    }
+                } else if (ctrl_key_state & windows.LEFT_ALT_PRESSED != 0 or ctrl_key_state & windows.RIGHT_ALT_PRESSED != 0) {
+                    return Event{ .key = Key{ .alt = @intCast(char) } };
+                } else {
+                    return Event{ .key = Key{ .char = char } };
+                }
             }
         },
-
-        // tab is equal to ctrl-i
-
-        // ctrl keys (avoids ctrl-m)
-        '\x01'...'\x0C', '\x0E'...'\x1A' => return Event{ .key = Key{ .ctrl = c0 + '\x60' } },
-
-        // special chars
-        '\x7f' => return Event{ .key = .backspace },
-        '\x0D' => return Event{ .key = .enter },
-
-        // chars and shift + chars
-        else => return Event{ .key = Key{ .char = c0 } },
-    };
-
-    return event;
+        windows.MOUSE_EVENT => {
+            // Handle mouse events
+            // You'll need to implement this based on your Mouse struct definition
+            return .none;
+        },
+        windows.WINDOW_BUFFER_SIZE_EVENT => {
+            // Handle window resize events
+            // You'll need to implement this based on your Resize struct definition
+            return .none;
+        },
+        else => return .none,
+    }
 }
 
 /// Returns the next event received.
