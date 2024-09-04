@@ -9,8 +9,6 @@ const windows = if (builtin.os.tag == .windows) @cImport({
     @cInclude("windows.h");
 }) else void;
 
-const not_raw_mode_mask: u32 = if (builtin.os.tag == .windows) windows.ENABLE_LINE_INPUT | windows.ENABLE_ECHO_INPUT | windows.ENABLE_PROCESSED_INPUT else 0;
-
 /// ReadMode defines the read behaivour when using raw mode
 pub const ReadMode = enum {
     blocking,
@@ -91,41 +89,80 @@ pub const RawTerm = struct {
 };
 
 pub const RawWinTerm = struct {
-    handle: os.windows.HANDLE,
+    handle: windows.HANDLE,
+    original_mode: windows.DWORD,
 
     const Self = @This();
 
     pub fn disableRawMode(self: *Self) !void {
-        var console_mode: u32 = 0;
-        var result = windows.GetConsoleMode(self.handle, &console_mode);
-        if (result == 0) {
-            return error.GetConsoleModeFailed;
+        // Check if the handle is still valid
+        var dummy: windows.DWORD = 0;
+        if (windows.GetConsoleMode(self.handle, &dummy) == 0) {
+            // Try to get a fresh handle
+            const new_handle = windows.CreateFileA(
+                "CONIN$",
+                windows.GENERIC_READ | windows.GENERIC_WRITE,
+                windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE,
+                null,
+                windows.OPEN_EXISTING,
+                0,
+                null,
+            );
+            if (new_handle == windows.INVALID_HANDLE_VALUE) {
+                return error.FailedToGetNewHandle;
+            }
+            self.handle = new_handle;
         }
-        const new_console_mode = console_mode | not_raw_mode_mask;
-        result = windows.SetConsoleMode(self.handle, new_console_mode);
+        const result = windows.SetConsoleMode(self.handle, self.original_mode);
         if (result == 0) {
             return error.SetConsoleModeFailed;
         }
+        std.debug.print("Raw mode disabled successfully\n", .{});
     }
 };
 
-pub fn enableRawModeWin(handle: std.fs.File) !RawWinTerm {
-    var console_mode: u32 = 0;
-    var result = windows.GetConsoleMode(handle.handle, &console_mode);
+pub fn enableRawModeWin(handle: windows.HANDLE) !RawWinTerm {
+    if (handle == windows.INVALID_HANDLE_VALUE) {
+        return error.InvalidHandleValue;
+    }
+
+    var original_mode: windows.DWORD = 0;
+    var result = windows.GetConsoleMode(handle, &original_mode);
     if (result == 0) {
         return error.GetConsoleModeFailed;
     }
 
-    const flipped_mask: u32 = ~not_raw_mode_mask;
-    const new_console_mode: u32 = console_mode & flipped_mask;
-    result = windows.SetConsoleMode(handle.handle, new_console_mode);
+    const not_raw_mode_mask: windows.DWORD = windows.ENABLE_LINE_INPUT | windows.ENABLE_ECHO_INPUT | windows.ENABLE_PROCESSED_INPUT;
+    const flipped_mask: windows.DWORD = ~not_raw_mode_mask;
+
+    const new_console_mode: windows.DWORD = original_mode & flipped_mask;
+
+    result = windows.SetConsoleMode(handle, new_console_mode);
     if (result == 0) {
         return error.SetConsoleModeFailed;
     }
 
-    return RawWinTerm{
-        .handle = handle.handle,
-    };
+    return RawWinTerm{ .handle = handle, .original_mode = original_mode };
+}
+
+pub fn getWindowsStdinHandle() windows.HANDLE {
+    const GENERIC_READ = 0x80000000;
+    const GENERIC_WRITE = 0x40000000;
+    const FILE_SHARE_READ = 0x00000001;
+    const FILE_SHARE_WRITE = 0x00000002;
+    const OPEN_EXISTING = 3;
+
+    const console_handle = windows.CreateFileA(
+        "CONIN$",
+        GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        null,
+        OPEN_EXISTING,
+        0,
+        null,
+    );
+
+    return console_handle;
 }
 
 /// Returned by `getSize()`
@@ -165,10 +202,23 @@ test "entering stdin raw mode" {
         // var term = try enableRawMode(tty.context.handle, .blocking);
         // defer term.disableRawMode() catch {};
     }
-
     if (builtin.os.tag == .windows) {
-        const tty = std.io.getStdOut();
-        var term = try enableRawModeWin(tty);
+        const console_handle = getWindowsStdinHandle();
+
+        if (console_handle == windows.INVALID_HANDLE_VALUE) {
+            const err: windows.DWORD = windows.GetLastError();
+            std.debug.print("GetLastError : {d}\n", .{err});
+            return error.FailedToOpenConsole;
+        }
+
+        var term = enableRawModeWin(console_handle) catch |err| {
+            std.debug.print("Failed to enable raw mode: {any}\n", .{err});
+            _ = windows.CloseHandle(console_handle);
+            return err;
+        };
         defer term.disableRawMode() catch {};
+        defer _ = windows.CloseHandle(console_handle);
+
+        std.debug.print("Raw mode enabled successfully\n", .{});
     }
 }
