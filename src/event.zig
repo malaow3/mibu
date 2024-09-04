@@ -154,6 +154,71 @@ pub const Mouse = struct {
     }
 };
 
+pub fn next_win(handle: anytype) !Event {
+    if (builtin.os.tag != .windows) {
+        return error.UnsupportedPlatform;
+    }
+    const windows = @cImport({
+        @cInclude("windows.h");
+    });
+    // TODO: Check buffer size
+    var buf: [20]u8 = undefined;
+    const c: windows.DWORD = undefined;
+    if (windows.ReadFile(handle, &buf, 20, &c, null) == 0) {
+        return .none;
+    }
+
+    const view = std.unicode.Utf8View.init(buf[0..c]) catch {
+        return parse_csi(buf[2..c]);
+    };
+
+    var iter = view.iterator();
+    const event: Event = .none;
+
+    // std.debug.print("\n\r{any}\n", .{view});
+
+    // TODO: Find a better way to iterate buffer
+    if (iter.nextCodepoint()) |c0| switch (c0) {
+        '\x1b' => {
+            if (iter.nextCodepoint()) |c1| switch (c1) {
+                // fn (1 - 4)
+                // O - 0x6f - 111
+                '\x4f' => {
+                    return Event{ .key = Key{ .fun = (1 + buf[2] - '\x50') } };
+                },
+
+                // csi
+                '[' => {
+                    return try parse_csi(buf[2..c]);
+                },
+
+                '\x01'...'\x0C', '\x0E'...'\x1A' => return Event{ .key = Key{ .ctrl_alt = c1 + '\x60' } },
+
+                // alt key
+                else => {
+                    return Event{ .key = Key{ .alt = c1 } };
+                },
+            } else {
+                return Event{ .key = .esc };
+            }
+        },
+
+        // tab is equal to ctrl-i
+
+        // ctrl keys (avoids ctrl-m)
+        '\x01'...'\x0C', '\x0E'...'\x1A' => return Event{ .key = Key{ .ctrl = c0 + '\x60' } },
+
+        // special chars
+        '\x7f' => return Event{ .key = .backspace },
+        '\x0D' => return Event{ .key = .enter },
+
+        // chars and shift + chars
+        else => return Event{ .key = Key{ .char = c0 } },
+    };
+
+    return event;
+}
+
 /// Returns the next event received.
 /// When used with canonical mode, the user needs to press enter to receive the event.
 /// When raw term is `.blocking` it will block until read at least one event.
