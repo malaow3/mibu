@@ -161,10 +161,16 @@ pub fn next_win(handle: anytype) !Event {
     const windows = @cImport({
         @cInclude("windows.h");
     });
-    // TODO: Check buffer size
-    var buf: [20]u8 = undefined;
+    var buf: [1]u8 = undefined;
     var c: windows.DWORD = undefined;
-    if (windows.ReadFile(handle, &buf, 20, &c, null) == 0) {
+
+    if (windows.ReadFile(handle, &buf, 1, &c, null) == 0) {
+        const err = windows.GetLastError();
+        std.debug.print("ReadFile failed. Error: {}\n", .{err});
+        return error.ReadFailure;
+    }
+
+    if (c == 0) {
         return .none;
     }
 
