@@ -95,7 +95,7 @@ pub const RawWinTerm = struct {
     const Self = @This();
 
     pub fn init() !RawWinTerm {
-        const handle = getWindowsStdinHandle();
+        const handle = try getWindowsStdinHandle();
         if (handle == windows.INVALID_HANDLE_VALUE) {
             return error.InvalidHandle;
         }
@@ -131,8 +131,23 @@ pub const RawWinTerm = struct {
     }
 };
 
-pub fn getWindowsStdinHandle() windows.HANDLE {
-    const handle: windows.HANDLE = windows.GetStdHandle(windows.STD_INPUT_HANDLE);
+pub fn getWindowsStdinHandle() !windows.HANDLE {
+    const handle = windows.CreateFileA(
+        "CONIN$",
+        windows.GENERIC_READ | windows.GENERIC_WRITE,
+        windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE,
+        null,
+        windows.OPEN_EXISTING,
+        0,
+        null,
+    );
+
+    if (handle == windows.INVALID_HANDLE_VALUE) {
+        const err = windows.GetLastError();
+        std.debug.print("CreateFile failed. Error: {}\n", .{err});
+        return error.CreateFileFailure;
+    }
+
     return handle;
 }
 
