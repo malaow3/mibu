@@ -89,8 +89,8 @@ pub const RawTerm = struct {
 };
 
 pub const RawWinTerm = struct {
-    handle: windows.HANDLE,
-    original_mode: windows.DWORD,
+    handle: if (builtin.os.tag == .windows) windows.HANDLE else void,
+    original_mode: if (builtin.os.tag == .windows) windows.DWORD else void,
 
     const Self = @This();
 
