@@ -163,7 +163,7 @@ pub fn next_win(handle: anytype) !Event {
     });
     // TODO: Check buffer size
     var buf: [20]u8 = undefined;
-    const c: windows.DWORD = undefined;
+    var c: windows.DWORD = undefined;
     if (windows.ReadFile(handle, &buf, 20, &c, null) == 0) {
         return .none;
     }
