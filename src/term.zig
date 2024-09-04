@@ -93,36 +93,33 @@ pub const RawTerm = struct {
 pub const RawWinTerm = struct {
     handle: os.windows.HANDLE,
 
-
     const Self = @This();
 
     pub fn disableRawMode(self: *Self) !void {
         var console_mode: u32 = 0;
         var result = windows.GetConsoleMode(self.handle, &console_mode);
-        if (result != 0) {
+        if (result == 0) {
             return error.GetConsoleModeFailed;
         }
         const new_console_mode = console_mode | not_raw_mode_mask;
         result = windows.SetConsoleMode(self.handle, new_console_mode);
-        if (result != 0) {
+        if (result == 0) {
             return error.SetConsoleModeFailed;
         }
     }
 };
 
-
 pub fn enableRawModeWin(handle: std.fs.File) !RawWinTerm {
     var console_mode: u32 = 0;
     var result = windows.GetConsoleMode(handle.handle, &console_mode);
-    if (result != 0) {
+    if (result == 0) {
         return error.GetConsoleModeFailed;
     }
-
 
     const flipped_mask: u32 = ~not_raw_mode_mask;
     const new_console_mode: u32 = console_mode & flipped_mask;
     result = windows.SetConsoleMode(handle.handle, new_console_mode);
-    if (result != 0) {
+    if (result == 0) {
         return error.SetConsoleModeFailed;
     }
 
