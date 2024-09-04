@@ -102,6 +102,8 @@ pub const RawWinTerm = struct {
 
         var original_mode: windows.DWORD = undefined;
         if (windows.GetConsoleMode(handle, &original_mode) == 0) {
+            const err = windows.GetLastError();
+            std.debug.print("GetConsoleMode failed. Error: {}\n", .{err});
             return error.GetConsoleModeFailure;
         }
 
@@ -121,29 +123,17 @@ pub const RawWinTerm = struct {
         };
     }
 
-    pub fn deinit(self: *RawWinTerm) void {
-        _ = windows.SetConsoleMode(self.handle, self.original_mode);
+    pub fn deinit(self: *RawWinTerm) !void {
+        const result = windows.SetConsoleMode(self.handle, self.original_mode);
+        if (result == 0) {
+            return error.SetConsoleModeFailure;
+        }
     }
 };
 
 pub fn getWindowsStdinHandle() windows.HANDLE {
-    const GENERIC_READ = 0x80000000;
-    const GENERIC_WRITE = 0x40000000;
-    const FILE_SHARE_READ = 0x00000001;
-    const FILE_SHARE_WRITE = 0x00000002;
-    const OPEN_EXISTING = 3;
-
-    const console_handle = windows.CreateFileA(
-        "CONIN$",
-        GENERIC_READ | GENERIC_WRITE,
-        FILE_SHARE_READ | FILE_SHARE_WRITE,
-        null,
-        OPEN_EXISTING,
-        0,
-        null,
-    );
-
-    return console_handle;
+    const handle: windows.HANDLE = windows.GetStdHandle(windows.STD_INPUT_HANDLE);
+    return handle;
 }
 
 /// Returned by `getSize()`
@@ -188,6 +178,8 @@ test "entering stdin raw mode" {
             std.debug.print("Failed to enable raw mode: {any}\n", .{err});
             return err;
         };
-        defer console_handle.deinit();
+        defer console_handle.deinit() catch |err| {
+            std.debug.print("Failed to disable raw mode: {any}\n", .{err});
+        };
     }
 }
